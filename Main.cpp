@@ -70,45 +70,48 @@ int main() {
     cv::Mat imgDistTransResult;
     cv::distanceTransform(imgThresh, imgDistTransResult, CV_DIST_L2, 3);
     // normalize the distance image for range = {0.0, 1.0} so we can visualize and threshold it
-    normalize(imgDistTransResult, imgDistTransResult, 0, 1., cv::NORM_MINMAX);
+    cv::normalize(imgDistTransResult, imgDistTransResult, 0, 1., cv::NORM_MINMAX);
     cv::imshow("6 - imgDistTransResult", imgDistTransResult);
 
     // threshold to obtain the peaks, these will be the markers for the foreground objects
     cv::threshold(imgDistTransResult, imgDistTransResult, 0.4, 1.0, CV_THRESH_BINARY);
 
-    // dilate
+    // dilate to find peaks
     cv::Mat kernel1 = cv::Mat::ones(3, 3, CV_8UC1);
     cv::dilate(imgDistTransResult, imgDistTransResult, kernel1);
-    cv::imshow("Peaks", imgDistTransResult);
+    cv::imshow("7a - imgDistTransResult dilated", imgDistTransResult);
 
     // create the CV_8U version of the distance image, needed for findContours()
-    cv::Mat dist_8u;
-    imgDistTransResult.convertTo(dist_8u, CV_8U);
+    cv::Mat imgDistTransResult8U;
+    imgDistTransResult.convertTo(imgDistTransResult8U, CV_8U);
+    cv::imshow("7b - imgDistTransResult dilated", imgDistTransResult);
 
     // Find total markers
     std::vector<std::vector<cv::Point>> contours;
-    cv::findContours(dist_8u, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
-
-    // Create the marker image for the watershed algorithm
-    cv::Mat imgMarkers = cv::Mat::zeros(imgDistTransResult.size(), CV_32SC1);
-    // Draw the foreground markers
-    for (size_t i = 0; i < contours.size(); i++) {
-        drawContours(imgMarkers, contours, static_cast<int>(i), cv::Scalar::all(static_cast<int>(i) + 1), -1);
-    }
+    cv::findContours(imgDistTransResult8U, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE);
     std::cout << "\n" << "contours.size() = " << contours.size() << "\n\n";
 
-    // Draw the background marker (small circle in the very top left
+    // create the marker image, this will be a pass by reference output to watershed(), this has to be the same size as the others, but type CV_32SC1
+    cv::Mat imgMarkers = cv::Mat::zeros(imgDistTransResult.size(), CV_32SC1);
+    
+    // draw the foreground markers in shades of gray on the markers image
+    for (size_t i = 0; i < contours.size(); i++) {
+        cv::drawContours(imgMarkers, contours, static_cast<int>(i), cv::Scalar::all(static_cast<int>(i) + 1), -1);
+    }    
+
+    // draw the background marker (small circle in the very top left) on the markers image
     cv::circle(imgMarkers, cv::Point(5, 5), 3, cv::Scalar(255.0, 255.0, 255.0), -1);
-    cv::imshow("Markers", imgMarkers * 10000);
+    cv::imshow("8 - imgMarkers just before watershed()", imgMarkers * 10000);
 
     // Perform the watershed algorithm
     cv::watershed(imgOriginal, imgMarkers);
 
-    // ??
-    cv::Mat imgMarkers2 = cv::Mat::zeros(imgMarkers.size(), CV_8UC1);
-    imgMarkers.convertTo(imgMarkers2, CV_8UC1);
-    cv::bitwise_not(imgMarkers2, imgMarkers2);
-    cv::imshow("imgMarkers2", imgMarkers2);
+    // declare an 8-bit 1-channel version of the markers image, then convert the 
+    cv::Mat imgMarkers8U = cv::Mat::zeros(imgMarkers.size(), CV_8UC1);
+    imgMarkers.convertTo(imgMarkers8U, CV_8UC1);
+    // invert image
+    cv::bitwise_not(imgMarkers8U, imgMarkers8U);
+    cv::imshow("9 - imgMarkers8U", imgMarkers8U);
     
     // Generate random colors
     std::vector<cv::Vec3b> colors;
@@ -119,21 +122,21 @@ int main() {
         colors.push_back(cv::Vec3b((uchar)b, (uchar)g, (uchar)r));
     }
     // Create the result image
-    cv::Mat dst = cv::Mat::zeros(imgMarkers.size(), CV_8UC3);
+    cv::Mat imgFinalResult = cv::Mat::zeros(imgMarkers.size(), CV_8UC3);
     // Fill labeled objects with random colors
     for (int i = 0; i < imgMarkers.rows; i++) {
         for (int j = 0; j < imgMarkers.cols; j++) {
             int index = imgMarkers.at<int>(i, j);
             if (index > 0 && index <= static_cast<int>(contours.size())) {
-                dst.at<cv::Vec3b>(i, j) = colors[index - 1];
+                imgFinalResult.at<cv::Vec3b>(i, j) = colors[index - 1];
             } else {
-                dst.at<cv::Vec3b>(i, j) = cv::Vec3b(0, 0, 0);
+                imgFinalResult.at<cv::Vec3b>(i, j) = cv::Vec3b(0, 0, 0);
             }
         }
     }
 
     // Visualize the final image
-    imshow("Final Result", dst);
+    cv::imshow("10 - Final Result", imgFinalResult);
     cv::waitKey();
     return 0;
 }
